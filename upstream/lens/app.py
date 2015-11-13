@@ -26,48 +26,9 @@ from lens.thread import Thread, ThreadManager
 logger = logging.getLogger('Lens.App')
 
 
-class App():
-    @staticmethod
-    def __get_toolkit(name, exact=False):
-        #: defines the list of Lens backends to be preloaded for auto-detection
-        __toolkits = {'gtk3': ['lens.appgtk', 'ViewGtk'], 'gtk': ['lens.appgtk', 'ViewGtk'],
-            'qt4': ['lens.appqt4', 'ViewQt4'], 'qt5': ['lens.appqt5', 'ViewQt5'],
-            'qt': ['lens.appqt5', 'ViewQt5']}
-
-        __tk_error = []
-
-        if name in __toolkits:
-            try:
-                __tk = __toolkits[name]
-                __module = __import__(__tk[0], globals(), locals(), [__tk[1]], 0)
-                logger.debug('Loaded: {0}'.format(name))
-                return getattr(__module, __tk[1], None)
-
-            except:
-                if exact:
-                    raise Exception(
-                        'Toolkit %s is not implemented or could not be loaded.' % (name))
-
-                else:
-                    logger.debug(traceback.format_exc())
-                    __tk_error.append(name)
-
-        for k in __toolkits:
-            if k in __tk_error:
-                continue
-
-            try:
-                logger.debug('Loading fallback: {0}'.format(k))
-                __tk = __toolkits[k]
-                __module = __import__(__tk[0], globals(), locals(), [__tk[1]], 0)
-                return getattr(__module, __tk[1], None)
-            except:
-                logger.debug(traceback.format_exc())
-                __tk_error.append(k)
-
-        raise Exception('No fallback toolkits implemented or loaded.')
-
-    """The app object implements a Lens application and acts as the central
+class LensApp:
+    """
+    The app object implements a Lens application and acts as the central
     object. Once created it will act as a central registry for the view
     toolkit abstraction, thread management, signal handling and much more.
 
@@ -79,8 +40,8 @@ class App():
                  application window's title bar.
     :param width: the width of the Lens applciation window. Defaults to 640.
     :param height the height of the Lens applciation window. Defaults to 480.
-    """
 
+    """
     def __init__(self, toolkit=None, toolkit_hint='gtk', name="MyLensApp", *args, **kwargs):
         self._app_name = name
         self._app_width = kwargs.get('width', 640)
@@ -124,20 +85,66 @@ class App():
         #: manage directory namespaces for local app data
         self.namespaces = []
 
-    def __get_desktop_hint(self, hint="gnome"):
-        def __is_running(process):
+    @staticmethod
+    def __get_toolkit(name, exact=False):
+        #: defines the list of Lens backends to be preloaded for auto-detection
+        toolkits = {'gtk3': ['lens.appgtk', 'ViewGtk'],
+                    'gtk': ['lens.appgtk', 'ViewGtk'],
+                    'qt4': ['lens.appqt4', 'ViewQt4'],
+                    'qt5': ['lens.appqt5', 'ViewQt5'],
+                    'qt': ['lens.appqt5', 'ViewQt5']}
+
+        tk_error = []
+
+        if name and name in toolkits:
             try:
-                # Linux/Unix
-                s = subprocess.Popen(["ps", "axw"], stdout=subprocess.PIPE)
-            except:
-                # Windows
-                s.Popen(["tasklist", "/v"], stdout=subprocess.PIPE)
+                tk = toolkits[name]
+                tk_module = __import__(tk[0], globals(), locals(), [tk[1]], 0)
+                logger.debug('Loaded: {0}'.format(name))
 
-            for x in s.stdout:
-                if process in x.decode('utf-8'):
-                    return True
+                return getattr(tk_module, tk[1], None)
 
-            return False
+            except (ImportError, KeyError):
+                if exact:
+                    raise Exception(
+                        'Toolkit %s is not implemented or could not be loaded.' % name)
+                else:
+                    logger.debug(traceback.format_exc())
+                    tk_error.append(name)
+
+        for tkit in toolkits:
+            if tkit in tk_error:
+                continue
+            try:
+                logger.debug('Loading fallback: {0}'.format(tkit))
+                tk = toolkits[tkit]
+                tk_module = __import__(tk[0], globals(), locals(), [tk[1]], 0)
+
+                return getattr(tk_module, tk[1], None)
+
+            except (ImportError, KeyError):
+                logger.debug(traceback.format_exc())
+                tk_error.append(tkit)
+                continue
+
+        raise Exception('No fallback toolkits loaded.')
+
+    @staticmethod
+    def __is_running(process):
+        running = ''
+        try:
+            # Linux/Unix
+            running = subprocess.check_output(["ps", "axw"], universal_newlines=True)
+        except subprocess.CalledProcessError:
+            # Windows
+            running = subprocess.Popen(["tasklist", "/v"], universal_newlines=True)
+
+        if process in running:
+            return True
+
+        return False
+
+    def __get_desktop_hint(self, hint="gnome"):
 
         desktop = hint
 
@@ -147,10 +154,10 @@ class App():
         elif os.environ.get('GNOME_DESKTOP_SESSION_ID'):
             desktop = 'gnome'
 
-        elif __is_running("xfce-mcs-manage") or __is_running('xfce4-session'):
+        elif self.__is_running("xfce-mcs-manage") or self.__is_running('xfce4-session'):
             desktop = 'xfce'
 
-        elif __is_running("ksmserver"):
+        elif self.__is_running("ksmserver"):
             desktop = 'kde'
 
         return desktop
@@ -202,12 +209,12 @@ class App():
         return decorator
 
     def __load_toolkit(self, toolkit=None, toolkit_hint='gtk'):
-        # determine the preferred toolkit to use and build the appropiate LensView
+        # determine the preferred toolkit to use and build the appropriate LensView
         if toolkit is None:
             toolkit = self.__get_desktop_toolkit_hint(toolkit_hint.lower())
 
         # attempt to load the preferred
-        toolkit_klass = App.__get_toolkit(toolkit.lower())
+        toolkit_klass = LensApp.__get_toolkit(toolkit.lower())
         logger.debug('Using {0} toolkit'.format(toolkit.lower()))
 
         self._lv = toolkit_klass(name=self._app_name, width=self._app_width,
