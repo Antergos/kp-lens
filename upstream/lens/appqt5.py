@@ -19,30 +19,25 @@ import json
 import logging
 import os
 import signal
-from lens.view import View
-from lens.thread import Thread, ThreadManager
 
-logger = logging.getLogger('Lens.Backend.Qt5')
+from lens.thread import ThreadManager
+from lens.view import View
+
 
 # Qt5
 from dbus.mainloop.qt import DBusQtMainLoop
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtWebKitWidgets import *
+# PyCharm import bug workaround for code completion
+from PyQt5.QtCore.__init__ import QSocketNotifier
+from PyQt5 import QtWebEngineWidgets as QtWebEng
 from PyQt5.QtWebChannel import *
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+from PyQt5.QtNetwork.__init__ import QNetworkAccessManager
 
-# FIXME: QString does not exists in python3
-try:
-    from PyQt5.QtCore import QString
-except ImportError:
-    QString = type("")
+logger = logging.getLogger('Lens.Backend.Qt5')
 
 
 class ThreadManagerQt5(ThreadManager):
-    def __init__(self, app=None, maxConcurrentThreads=10):
-        ThreadManager.__init__(self, maxConcurrentThreads)
+    def __init__(self, app=None, max_concurrent_threads=10):
+        super(ThreadManager, self).__init__(self, max_concurrent_threads)
 
         self._app = app
 
@@ -95,19 +90,19 @@ class CustomNetworkAccessManager(QNetworkAccessManager):
                 # make lens.css backend specific
                 path = path.replace('lens.css', 'lens-qt5.css')
 
-            request.setUrl(QUrl(QString(path)))
+            request.setUrl(QUrl(str(path)))
 
         return QNetworkAccessManager.createRequest(self, operation, request, device)
 
 
-class _QWebView(QWebView):
+class _QWebView(QtWebEng.QWebEngineView):
     def __init__(self, inspector=False):
-        QWebView.__init__(self)
+        super(QtWebEng.QWebEngineView, self).__init__(self)
 
         self.__inspector = None
         self.__contextMenuEvent = self.contextMenuEvent
 
-        self.set_inspector(inspector)
+        # self.set_inspector(inspector)
 
     def ignoreContextMenuEvent(self, event):
         event.ignore()
@@ -126,9 +121,16 @@ class _QWebView(QWebView):
         self.__inspector = state
 
 
-class _QWebPage(QWebPage):
+class _QWebPage(QtWebEng.QWebEnginePage):
     def __init__(self, debug=False):
-        QWebView.__init__(self)
+        super(QtWebEng.QWebEnginePage, self).__init__(self)
+        self.cnam = None
+
+    def setNetworkAccessManager(self, cnam):
+        self.cnam = cnam
+
+    def acceptNavigationRequest(self, url, *args, **kwargs):
+        self.cnam.createRequest(url)
 
 
 class ViewQt5(View):
@@ -225,7 +227,7 @@ class ViewQt5(View):
         self._app.exec_()
 
     def emit_js(self, name, *args):
-        self._frame.evaluateJavaScript(QString(self._javascript % json.dumps([name] + list(args))))
+        self._frame.evaluateJavaScript(str(self._javascript % json.dumps([name] + list(args))))
 
     def load_uri(self, uri):
         uri_base = os.path.dirname(uri) + '/'
@@ -245,7 +247,7 @@ class ViewQt5(View):
         self._lensview.resize(width, height)
 
     def set_title(self, title):
-        self._lensview.setWindowTitle(QString(title))
+        self._lensview.setWindowTitle(str(title))
 
     def set_uri_app_base(self, uri):
         self._cnam._uri_app_base = uri
