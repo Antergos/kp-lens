@@ -27,10 +27,10 @@ from lens.view import View
 # Qt5
 from dbus.mainloop.qt import DBusQtMainLoop
 # PyCharm import bug workaround for code completion
-from PyQt5.QtCore.__init__ import QSocketNotifier
+from PyQt5.QtCore.__init__ import *
+from PyQt5.QtWidgets.__init__ import QApplication
 from PyQt5 import QtWebEngineWidgets as QtWebEng
 from PyQt5.QtWebChannel import *
-from PyQt5.QtNetwork.__init__ import QNetworkAccessManager
 
 logger = logging.getLogger('Lens.Backend.Qt5')
 
@@ -62,78 +62,77 @@ class ThreadManagerQt5(ThreadManager):
         return True
 
 
-class CustomNetworkAccessManager(QNetworkAccessManager):
-    def __init__(self, parent=None):
-        super().__init__(parent=parent)
-        self._uri_app_base = ''
-        self._uri_lens_base = ''
+class CustomNetworkAccessManager(QObject):
+    process_url = pyqtSignal(str)
 
-    def createRequest(self, operation, request, device):
-        path = o = request.url().toString()
+    def __init__(self, page=None, uri_app_base='', uri_lens_base='', *args, **kwargs):
+        super(QObject, self).__init__(*args, **kwargs)
+        self.uri_app_base = uri_app_base
+        self.uri_lens_base = uri_lens_base
+        self.process_url.connect(self.process_request_url)
+        self.page = page
+
+    @pyqtSlot(str)
+    def process_request_url(self, request_url):
+        path = req = str(request_url)
 
         if path.startswith('app://') or path.startswith('lens://'):
             if path == 'app:///':
-                path = 'file://' + self._uri_app_base + 'app.html'
-                logger.debug('Loading app resource: {0} ({1})'.format(o, path))
+                path = 'file://' + self.uri_app_base + 'app.html'
+                logger.debug('Loading app resource: {0} ({1})'.format(req, path))
 
             elif path.startswith('app://'):
-                path = path.replace('app://', 'file://' + self._uri_app_base)
-                logger.debug('Loading app resource: {0} ({1})'.format(o, path))
+                path = path.replace('app://', 'file://' + self.uri_app_base)
+                logger.debug('Loading app resource: {0} ({1})'.format(req, path))
 
                 # variable substitution
                 path = path.replace('$backend', 'qt5')
 
             elif path.startswith('lens://'):
-                path = path.replace('lens://', 'file://' + self._uri_lens_base)
-                logger.debug('Loading lens resource: {0} ({1})'.format(o, path))
+                path = path.replace('lens://', 'file://' + self.uri_lens_base)
+                logger.debug('Loading lens resource: {0} ({1})'.format(req, path))
 
                 # make lens.css backend specific
                 path = path.replace('lens.css', 'lens-qt5.css')
 
-            request.setUrl(QUrl(str(path)))
-
-        return QNetworkAccessManager.createRequest(self, operation, request, device)
+        self.page.url_for_request.emit(path)
 
 
-class _QWebView(QtWebEng.QWebEngineView):
-    def __init__(self, inspector=False):
-        super(QtWebEng.QWebEngineView, self).__init__(self)
+class LensQWebEngineView(QtWebEng.QWebEngineView):
+    def __init__(self, *args, **kwargs):
+        super(QtWebEng.QWebEngineView, self).__init__(self, *args, **kwargs)
 
-        self.__inspector = None
-        self.__contextMenuEvent = self.contextMenuEvent
-
-        # self.set_inspector(inspector)
-
-    def ignoreContextMenuEvent(self, event):
-        event.ignore()
-
-    def set_inspector(self, state):
-        if state == self.__inspector:
-            return
-
-        if state:
-            self.contextMenuEvent = self.__contextMenuEvent
-
-        # disable context menu if inspector not enabled
-        else:
-            self.contextMenuEvent = self.ignoreContextMenuEvent
-
-        self.__inspector = state
+        self.setContextMenuPolicy(Qt.NoContextMenu)
 
 
-class _QWebPage(QtWebEng.QWebEnginePage):
-    def __init__(self, debug=False):
+class LensQWebEnginePage(QtWebEng.QWebEnginePage):
+    url_for_request = pyqtSignal(str)
+
+    def __init__(self):
         super(QtWebEng.QWebEnginePage, self).__init__(self)
         self.cnam = None
+        self.url_for_request.connect(self.url_for_request_cb)
 
-    def setNetworkAccessManager(self, cnam):
-        self.cnam = cnam
+    def set_network_access_manager(self, cnam):
+        if cnam:
+            self.cnam = cnam
+        else:
+            logger.debug('Invalid Value for cnam')
 
-    def acceptNavigationRequest(self, url, *args, **kwargs):
-        self.cnam.createRequest(url)
+    def acceptNavigationRequest(self, url):
+        # Emit signal to have our cnam process the URL.
+        self.cnam.process_url.emit(url)
+
+        # Returning False will make chromium ignore the request (we'll handle it in signal cb)
+        return False
+
+    @pyqtSlot(str)
+    def url_for_request_cb(self, url):
+        # Navigate to the processed url.
+        self.load(QUrl(url))
 
 
-class ViewQt5(View):
+class LensViewQt5(View):
     def __init__(self, name="MyLensApp", width=640, height=480, inspector=False,
                  start_maximized=False, *args, **kwargs):
         View.__init__(self, name=name, width=width, height=height, *args, **kwargs)
@@ -151,8 +150,8 @@ class ViewQt5(View):
 
     def _build_app(self):
         # build webkit container
-        self._lensview = lv = _QWebView(inspector=self._inspector)
-        lv.setPage(_QWebPage())
+        self._lensview = lv = LensQWebEngineView(inspector=self._inspector)
+        lv.setPage(LensQWebEnginePage())
 
         if self._inspector:
             lv.settings().setAttribute(lv.settings().DeveloperExtrasEnabled, True)
@@ -169,8 +168,8 @@ class ViewQt5(View):
         #    self.channel.registerObject(foo)
 
         #
-        self._cnam = CustomNetworkAccessManager()
-        lv.page().setNetworkAccessManager(self._cnam)
+        self._cnam = CustomNetworkAccessManager(page=lv.page())
+        lv.page().set_network_access_manager(self._cnam)
 
         # connect to Lens signals
         self.on('__close_app', self._close_cb)
@@ -250,10 +249,10 @@ class ViewQt5(View):
         self._lensview.setWindowTitle(str(title))
 
     def set_uri_app_base(self, uri):
-        self._cnam._uri_app_base = uri
+        self._cnam.uri_app_base = uri
 
     def set_uri_lens_base(self, uri):
-        self._cnam._uri_lens_base = uri
+        self._cnam.uri_lens_base = uri
 
     def toggle_window_maximize(self):
         if self._lensview.windowState() & Qt.WindowMaximized:
