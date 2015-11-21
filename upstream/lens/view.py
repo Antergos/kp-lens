@@ -97,7 +97,7 @@ class View(EventEmitter):
     self._javascript = 'window.lens.__emit(%s)'
 
   def _build_app(self):
-    raise NotImplementedError('Method "_build_app" needs to be subclassed.')
+    raise NotImplementedError('Method "build_app" needs to be subclassed.')
 
   def _on_js(self, thread, name, args):
     self.emit(name, *args)

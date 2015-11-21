@@ -20,6 +20,7 @@ import logging
 import os
 import signal
 
+import sys
 from lens.thread import ThreadManager
 from lens.view import View
 
@@ -28,7 +29,8 @@ from lens.view import View
 from dbus.mainloop.qt import DBusQtMainLoop
 # PyCharm import bug workaround for code completion
 from PyQt5.QtCore.__init__ import *
-from PyQt5.QtWidgets.__init__ import QApplication
+from PyQt5.QtWidgets.__init__ import QApplication, QMainWindow, QAction, qApp
+from PyQt5.QtGui.__init__ import QIcon
 from PyQt5 import QtWebEngineWidgets as QtWebEng
 from PyQt5.QtWebChannel import *
 
@@ -37,7 +39,7 @@ logger = logging.getLogger('Lens.Backend.Qt5')
 
 class ThreadManagerQt5(ThreadManager):
     def __init__(self, app=None, max_concurrent_threads=10):
-        super(ThreadManager, self).__init__(self, max_concurrent_threads)
+        super(ThreadManagerQt5, self).__init__(self, max_concurrent_threads)
 
         self._app = app
 
@@ -66,7 +68,7 @@ class CustomNetworkAccessManager(QObject):
     process_url = pyqtSignal(str)
 
     def __init__(self, page=None, uri_app_base='', uri_lens_base='', *args, **kwargs):
-        super(QObject, self).__init__(*args, **kwargs)
+        super(CustomNetworkAccessManager, self).__init__(*args, **kwargs)
         self.uri_app_base = uri_app_base
         self.uri_lens_base = uri_lens_base
         self.process_url.connect(self.process_request_url)
@@ -100,7 +102,7 @@ class CustomNetworkAccessManager(QObject):
 
 class LensQWebEngineView(QtWebEng.QWebEngineView):
     def __init__(self, *args, **kwargs):
-        super(QtWebEng.QWebEngineView, self).__init__(self, *args, **kwargs)
+        super(LensQWebEngineView, self).__init__(*args, **kwargs)
 
         self.setContextMenuPolicy(Qt.NoContextMenu)
 
@@ -108,9 +110,17 @@ class LensQWebEngineView(QtWebEng.QWebEngineView):
 class LensQWebEnginePage(QtWebEng.QWebEnginePage):
     url_for_request = pyqtSignal(str)
 
-    def __init__(self):
-        super(QtWebEng.QWebEnginePage, self).__init__(self)
+    def __init__(self, *args, **kwargs):
+        super(LensQWebEnginePage, self).__init__(*args, **kwargs)
         self.cnam = None
+        self.global_settings = self.globalSettings()
+
+        self.global_settings.setAttribute(
+            QtWebEng.QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
+        self.global_settings.setAttribute(
+            QtWebEng.QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+        self.global_settings.setAttribute(QtWebEng.QWebEngineSettings.ScrollAnimatorEnabled, True)
+
         self.url_for_request.connect(self.url_for_request_cb)
 
     def set_network_access_manager(self, cnam):
@@ -132,61 +142,111 @@ class LensQWebEnginePage(QtWebEng.QWebEnginePage):
         self.load(QUrl(url))
 
 
+class LensMainWindow(QMainWindow):
+    def __init__(self, *args, title=None, width=966, height=605, **kwargs):
+        super(LensMainWindow, self).__init__(*args, **kwargs)
+
+        self.title = title
+        self.width = width
+        self.height = height
+        self.setAttribute(Qt.WA_DeleteOnClose)
+
+
+
+        self.init_window()
+
+        self.web_view.show()
+        self.setCentralWidget(self.web_view)
+
+    def init_window(self):
+        self.setWindowTitle(self.title)
+        # self.setWindowIcon(QtGui.QIcon(os.path.join(DATA_DIR, 'img/fav.png')))
+        self.setFixedSize(self.width, self.height)
+        self.init_menu_bar()
+
+
+        self.init_bridge_channel()
+
+        self.web_page.load(QUrl('qrc:///static/view_wrap.html'))
+
+    def init_bridge_channel(self):
+        self.web_page.setWebChannel(self.channel)
+        # self.channel.registerObject('PoodleBridge', self.bridge)
+        # self.channel.registerObject('PoodleBridgeViews', self.views)
+        self.channel.registerObject('PoodleBridgeRouter', self.router)
+
+    def init_menu_bar(self):
+        exit_action = QAction(QIcon('exit.png'), '&Exit', self)
+        exit_action.setShortcut('Ctrl+Q')
+        exit_action.setStatusTip('Exit application')
+        exit_action.triggered.connect(qApp.quit)
+
+        menu_bar = self.menuBar()
+        file_menu = menu_bar.addMenu('&File')
+        file_menu.addAction(exit_action)
+        edit_menu = menu_bar.addMenu('&Edit')
+        edit_menu.addAction(exit_action)
+        view_menu = menu_bar.addMenu('&View')
+        view_menu.addAction(exit_action)
+        about_menu = menu_bar.addMenu('&About')
+        about_menu.addAction(exit_action)
+
+
 class LensViewQt5(View):
     def __init__(self, name="MyLensApp", width=640, height=480, inspector=False,
                  start_maximized=False, *args, **kwargs):
-        View.__init__(self, name=name, width=width, height=height, *args, **kwargs)
+        super(LensViewQt5, self).__init__(name=name, width=width, height=height, *args, **kwargs)
+
         # prepare Qt dbus mainloop
         DBusQtMainLoop(set_as_default=True)
-        self._app = QApplication([])
+        self._app = QApplication(*args, **kwargs)
 
-        self._app_loaded = False
+        self.app_loaded = False
+        self.view = None
+        self.page = None
 
         self._manager = ThreadManagerQt5(app=self._app)
 
-        self._inspector = inspector
-        self._start_maximized = start_maximized
+        self.start_maximized = start_maximized
+        self.inspector = inspector
         self._build_app()
 
     def _build_app(self):
+        if self.inspector:
+            os.environ.update({'QTWEBENGINE_REMOTE_DEBUGGING': '127.0.0.1:23654'})
         # build webkit container
-        self._lensview = lv = LensQWebEngineView(inspector=self._inspector)
-        lv.setPage(LensQWebEnginePage())
+        self.view = lv = LensQWebEngineView()
+        self.page = LensQWebEnginePage()
+        self.window = LensMainWindow(title=self._app_name, width=self.width, height=self.height)
 
-        if self._inspector:
-            lv.settings().setAttribute(lv.settings().DeveloperExtrasEnabled, True)
-
-        self._frame = lv.page().mainFrame()
+        self.page.setView(self.view)
 
         # connect to Qt signals
         lv.loadFinished.connect(self._loaded_cb)
         lv.titleChanged.connect(self._title_changed_cb)
         self._app.lastWindowClosed.connect(self._last_window_closed_cb)
 
-        self._channel = QWebChannel(lv.page())
-        #    lv.page().setWebChannel(self._channel)
-        #    self.channel.registerObject(foo)
+        self.channel = QWebChannel(self.page)
 
-        #
-        self._cnam = CustomNetworkAccessManager(page=lv.page())
-        lv.page().set_network_access_manager(self._cnam)
+        self._cnam = CustomNetworkAccessManager(page=self.page)
+        self.page.set_network_access_manager(self._cnam)
 
         # connect to Lens signals
         self.on('__close_app', self._close_cb)
 
         # center on screen
-        _frame_geometry = lv.frameGeometry()
-        _active_screen = self._app.desktop().screenNumber(self._app.desktop().cursor().pos())
-        _center = self._app.desktop().screenGeometry(_active_screen).center()
-        _frame_geometry.moveCenter(_center)
-        lv.move(_frame_geometry.topLeft())
+        frame_geometry = self.window.frameGeometry()
+        active_screen = self._app.desktop().screenNumber(self._app.desktop().cursor().pos())
 
-        self.set_title(self._app_name)
-        self.set_size(self._app_width, self._app_height)
+        if self.start_maximized:
+            self.window.showMaximized()
+        _center = self.app.desktop().screenGeometry(active_screen).center()
+        frame_geometry.moveCenter(_center)
+        self.window.move(frame_geometry.topLeft())
 
     def _close_cb(self):
         self.emit('app.close')
-        self._app.exit()
+        self.app.exit()
 
     def _last_window_closed_cb(self, *args):
         self.emit('__close_app', *args)
@@ -194,11 +254,11 @@ class LensViewQt5(View):
     def _loaded_cb(self, success):
         # show window once some page has loaded
         self._lensview.show()
-        if self._start_maximized:
+        if self.start_maximized:
             self.toggle_window_maximize()
 
-        if not self._app_loaded:
-            self._app_loaded = True
+        if not self.app_loaded:
+            self.app_loaded = True
             self.emit('app.loaded')
 
     def _title_changed_cb(self, title):
@@ -223,7 +283,7 @@ class LensViewQt5(View):
 
     def _run(self):
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-        self._app.exec_()
+        self.app.exec_()
 
     def emit_js(self, name, *args):
         self._frame.evaluateJavaScript(str(self._javascript % json.dumps([name] + list(args))))
