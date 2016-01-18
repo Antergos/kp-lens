@@ -100,13 +100,6 @@ class CustomNetworkAccessManager(QObject):
         self.page.url_for_request.emit(path)
 
 
-class LensQWebEngineView(QtWebEng.QWebEngineView):
-    def __init__(self, *args, **kwargs):
-        super(LensQWebEngineView, self).__init__(*args, **kwargs)
-
-        self.setContextMenuPolicy(Qt.NoContextMenu)
-
-
 class LensQWebEnginePage(QtWebEng.QWebEnginePage):
     url_for_request = pyqtSignal(str)
 
@@ -151,8 +144,6 @@ class LensMainWindow(QMainWindow):
         self.height = height
         self.setAttribute(Qt.WA_DeleteOnClose)
 
-
-
         self.init_window()
 
         self.web_view.show()
@@ -164,16 +155,12 @@ class LensMainWindow(QMainWindow):
         self.setFixedSize(self.width, self.height)
         self.init_menu_bar()
 
-
-        self.init_bridge_channel()
-
-        self.web_page.load(QUrl('qrc:///static/view_wrap.html'))
-
     def init_bridge_channel(self):
-        self.web_page.setWebChannel(self.channel)
-        # self.channel.registerObject('PoodleBridge', self.bridge)
-        # self.channel.registerObject('PoodleBridgeViews', self.views)
-        self.channel.registerObject('PoodleBridgeRouter', self.router)
+        if self.bridge_object:
+            self.web_page.setWebChannel(self.channel)
+        # At least one object should be registered by subclass.
+        # Here is an example:
+        # self.channel.registerObject('PoodleBridgeRouter', self.router)
 
     def init_menu_bar(self):
         exit_action = QAction(QIcon('exit.png'), '&Exit', self)
@@ -201,9 +188,10 @@ class LensViewQt5(View):
         DBusQtMainLoop(set_as_default=True)
         self._app = QApplication(*args, **kwargs)
 
-        self.app_loaded = False
+        self._app_loaded = False
         self.view = None
         self.page = None
+        self.channel = None
 
         self._manager = ThreadManagerQt5(app=self._app)
 
@@ -215,18 +203,22 @@ class LensViewQt5(View):
         if self.inspector:
             os.environ.update({'QTWEBENGINE_REMOTE_DEBUGGING': '127.0.0.1:23654'})
         # build webkit container
-        self.view = lv = LensQWebEngineView()
+        self.view = QtWebEng.QWebEngineView()
         self.page = LensQWebEnginePage()
+        self.channel = QWebChannel(self.page)
         self.window = LensMainWindow(title=self._app_name, width=self.width, height=self.height)
 
+        # Subclass must load the first URL to be displayed.
+        # Here is an example:
+        # self.web_page.load(QUrl('qrc:///static/view_wrap.html'))
+
+        self.view.setContextMenuPolicy(Qt.NoContextMenu)
         self.page.setView(self.view)
 
         # connect to Qt signals
-        lv.loadFinished.connect(self._loaded_cb)
-        lv.titleChanged.connect(self._title_changed_cb)
+        self.view.loadFinished.connect(self._loaded_cb)
+        self.view.titleChanged.connect(self._title_changed_cb)
         self._app.lastWindowClosed.connect(self._last_window_closed_cb)
-
-        self.channel = QWebChannel(self.page)
 
         self._cnam = CustomNetworkAccessManager(page=self.page)
         self.page.set_network_access_manager(self._cnam)
@@ -238,15 +230,18 @@ class LensViewQt5(View):
         frame_geometry = self.window.frameGeometry()
         active_screen = self._app.desktop().screenNumber(self._app.desktop().cursor().pos())
 
-        if self.start_maximized:
-            self.window.showMaximized()
         _center = self.app.desktop().screenGeometry(active_screen).center()
         frame_geometry.moveCenter(_center)
         self.window.move(frame_geometry.topLeft())
 
+        self.window.setCentralWidget(self.view)
+
+        if self.start_maximized:
+            self.window.showMaximized()
+
     def _close_cb(self):
         self.emit('app.close')
-        self.app.exit()
+        self._app.exit()
 
     def _last_window_closed_cb(self, *args):
         self.emit('__close_app', *args)
@@ -258,7 +253,7 @@ class LensViewQt5(View):
             self.toggle_window_maximize()
 
         if not self.app_loaded:
-            self.app_loaded = True
+            self._app_loaded = True
             self.emit('app.loaded')
 
     def _title_changed_cb(self, title):
@@ -283,10 +278,10 @@ class LensViewQt5(View):
 
     def _run(self):
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-        self.app.exec_()
+        self._app.exec_()
 
     def emit_js(self, name, *args):
-        self._frame.evaluateJavaScript(str(self._javascript % json.dumps([name] + list(args))))
+        self.view.runJavaScript(str(self._javascript % json.dumps([name] + list(args))))
 
     def load_uri(self, uri):
         uri_base = os.path.dirname(uri) + '/'
@@ -315,17 +310,17 @@ class LensViewQt5(View):
         self._cnam.uri_lens_base = uri
 
     def toggle_window_maximize(self):
-        if self._lensview.windowState() & Qt.WindowMaximized:
-            self._lensview.setWindowState(self._lensview.windowState() ^ Qt.WindowMaximized)
+        if self.view.windowState() & Qt.WindowMaximized:
+            self.view.setWindowState(self._lensview.windowState() ^ Qt.WindowMaximized)
             self.emit_js('window-unmaximized')
         else:
-            self._lensview.setWindowState(self._lensview.windowState() | Qt.WindowMaximized)
+            self.view.setWindowState(self._lensview.windowState() | Qt.WindowMaximized)
             self.emit_js('window-maximized')
 
     def toggle_window_fullscreen(self):
-        if self._lensview.windowState() & Qt.WindowFullScreen:
-            self._lensview.setWindowState(self._lensview.windowState() ^ Qt.WindowFullScreen)
+        if self.view.windowState() & Qt.WindowFullScreen:
+            self.view.setWindowState(self._lensview.windowState() ^ Qt.WindowFullScreen)
             self.emit_js('window-unfullscreen')
         else:
-            self._lensview.setWindowState(self._lensview.windowState() | Qt.WindowFullScreen)
+            self.view.setWindowState(self._lensview.windowState() | Qt.WindowFullScreen)
             self.emit_js('window-fullscreen')
