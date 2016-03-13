@@ -15,13 +15,12 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-import dbus
 import logging
 import os
 import subprocess
 import traceback
-from lens.view import View
-from lens.thread import Thread, ThreadManager
+
+from utils import dbus_proxy
 
 logger = logging.getLogger('Lens.App')
 
@@ -201,7 +200,7 @@ class LensApp:
             error = None
 
             # check for DBus exceptions
-            if len(args) == 1 and isinstance(args[0], dbus.DBusException):
+            if len(args) == 1 and isinstance(args[0], dbus_proxy.DBusException):
                 error = args[0]
 
             self._lv.emit('dbus.' + name, error, *args)
@@ -302,8 +301,8 @@ class LensApp:
 
     # dbus helpers
     def dbus_async_call(self, signal, fn_method, *args):
-        if not isinstance(fn_method, dbus.proxies._DeferredMethod) and not isinstance(fn_method,
-                                                                                      dbus.proxies._ProxyMethod):
+        if not isinstance(fn_method, dbus_proxy.proxies._DeferredMethod) and not isinstance(fn_method,
+                                                                                            dbus_proxy.proxies._ProxyMethod):
             raise Exception('Not a valid deferred/proxy method.')
 
         _cb = self._dbus_async_cb(signal)
@@ -311,11 +310,11 @@ class LensApp:
         return fn_method(*args, reply_handler=_cb, error_handler=_cb)
 
     def dbus_interface(self, *args, **kwargs):
-        return dbus.Interface(*args, **kwargs)
+        return dbus_proxy.Interface(*args, **kwargs)
 
     def dbus_session(self):
         if self._dbus_session is None:
-            self._dbus_session = dbus.SessionBus()
+            self._dbus_session = dbus_proxy.SessionBus()
 
         return self._dbus_session
 
@@ -328,7 +327,7 @@ class LensApp:
 
     def dbus_system(self):
         if self._dbus_system is None:
-            self._dbus_system = dbus.SystemBus()
+            self._dbus_system = dbus_proxy.SystemBus()
 
         return self._dbus_system
 

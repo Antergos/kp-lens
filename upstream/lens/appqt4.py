@@ -20,17 +20,15 @@ import logging
 import os
 import signal
 
+from lens.thread import ThreadManager
 from lens.view import View
-from lens.thread import Thread, ThreadManager
 
 logger = logging.getLogger('Lens.Backend.Qt4')
 
 # Qt4
-from dbus.mainloop.qt import DBusQtMainLoop
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
+from utils.dbus_proxy import DBusQtMainLoop
 from PyQt4.QtWebKit import *
-from PyQt4.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from PyQt4.QtNetwork import QNetworkAccessManager
 
 # FIXME: QString does not exists in python3
 try:

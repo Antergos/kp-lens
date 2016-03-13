@@ -20,13 +20,11 @@ import logging
 import os
 import signal
 
-import sys
 from lens.thread import ThreadManager
 from lens.view import View
 
-
 # Qt5
-from dbus.mainloop.qt import DBusQtMainLoop
+from utils.dbus_proxy import DBusQtMainLoop
 # PyCharm import bug workaround for code completion
 from PyQt5.QtCore.__init__ import *
 from PyQt5.QtWidgets.__init__ import QApplication, QMainWindow, QAction, qApp

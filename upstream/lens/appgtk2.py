@@ -20,11 +20,11 @@ import logging
 import os
 import signal
 
+from lens.thread import ThreadManager
 from lens.view import View
-from lens.thread import Thread, ThreadManager
 
 # GTK
-from dbus.mainloop.glib import DBusGMainLoop
+from utils.dbus_proxy import DBusGMainLoop
 import gi
 gi.require_version('WebKit', '3.0')
 from gi.repository import WebKit, Gtk, GObject
