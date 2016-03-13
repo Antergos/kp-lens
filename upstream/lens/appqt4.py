@@ -132,7 +132,7 @@ class _QWebPage(QWebPage):
 class ViewQt4(View):
   def __init__(self, name="MyLensApp", width=640, height=480, inspector=False, start_maximized=False, *args, **kwargs):
     View.__init__(self, name=name, width=width,height=height, *args, **kwargs)
-    # prepare Qt dbus mainloop
+    # prepare Qt DBus mainloop
     DBusQtMainLoop(set_as_default=True)
     self._app = QApplication([])
 

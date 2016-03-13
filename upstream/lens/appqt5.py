@@ -182,7 +182,7 @@ class LensViewQt5(View):
                  start_maximized=False, *args, **kwargs):
         super(LensViewQt5, self).__init__(name=name, width=width, height=height, *args, **kwargs)
 
-        # prepare Qt dbus mainloop
+        # prepare Qt DBus mainloop
         DBusQtMainLoop(set_as_default=True)
         self._app = QApplication(*args, **kwargs)
 

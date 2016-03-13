@@ -60,7 +60,7 @@ class LensApp:
         #: check environment for toolkit overrides
         toolkit = os.environ.get('LENS_TOOLKIT', toolkit)
 
-        # dbus
+        # DBus
         self._dbus_session = None
         self._dbus_system = None
 
@@ -203,7 +203,7 @@ class LensApp:
             if len(args) == 1 and isinstance(args[0], dbus_proxy.DBusException):
                 error = args[0]
 
-            self._lv.emit('dbus.' + name, error, *args)
+            self._lv.emit('DBus.' + name, error, *args)
 
         return decorator
 
@@ -299,7 +299,7 @@ class LensApp:
 
         return decorator
 
-    # dbus helpers
+    # DBus helpers
     def dbus_async_call(self, signal, fn_method, *args):
         if not isinstance(fn_method, dbus_proxy.proxies._DeferredMethod) and not isinstance(fn_method,
                                                                                             dbus_proxy.proxies._ProxyMethod):

@@ -128,7 +128,7 @@ class ViewGtk2(View):
 
   def __init__(self, name="MyLensApp", width=640, height=480, inspector=False, *args, **kwargs):
     View.__init__(self, name=name, width=width, height=height, *args, **kwargs)
-    # prepare Gtk dbus mainloop
+    # prepare Gtk DBus mainloop
     DBusGMainLoop(set_as_default=True)
 
     self._app_loaded = False
